@@ -1,0 +1,338 @@
+---
+title: "Assignment 10: Surviving the Titanic"
+author: "Dannielle Nguyen"
+date: "`r Sys.Date()`"
+documentclass: article
+geometry: margin=1in
+fontsize: 11pt
+output:
+  pdf_document:
+    toc: false
+    df_print: kable
+    fig_caption: false
+    number_sections: false
+    dev: pdf
+    highlight: tango
+  html_document:
+    theme: default
+    self_contained: true
+    toc: false
+    df_print: kable
+    fig_caption: false
+    number_sections: false
+    smart: true
+    dev: svg
+---
+
+```{r setup, include = FALSE}
+# DO NOT ALTER THIS CHUNK
+knitr::opts_chunk$set(
+  echo = TRUE,
+  eval = TRUE,
+  fig.width = 5,
+  fig.asp = 0.618,
+  out.width = "70%",
+  dpi = 120,
+  fig.align = "center",
+  cache = FALSE
+)
+# Cost function for cross validation
+cost <- function(obs, pred) {
+  outcome <- pred > 0.5
+  return(1 - (sum(obs == outcome) / length(obs)))
+}
+# Load required packages
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(modelr))
+suppressPackageStartupMessages(library(boot))
+```
+
+
+## Exercise 1
+
+```{r}
+train_df <- read_csv(
+  file = "train.csv",
+  col_types = cols(
+    Pclass = col_character(),
+    SibSp = col_character(),
+    Parch = col_character()
+    )
+  )
+```
+
+```{r}
+train_df <- train_df %>%
+  mutate(
+    did_survive = as.logical(Survived)
+  )
+```
+
+## Exercise 2
+
+```{r}
+train_df %>%
+  pivot_longer(
+    cols=c('Age', 'Fare'),
+    names_to = "name",
+    values_to = "value"
+    ) %>%
+  ggplot() +
+  geom_histogram(
+    aes(x = value, fill = did_survive), 
+    alpha = 0.5, 
+    binwidth = 30, 
+    position ="identity"
+    ) +
+  facet_wrap(~ name, scales = "free") +
+  labs(
+    title = "Distribution of survival affected by variables Age and Fare",
+    x = "Value",
+    y = "Frequency"
+  )
+```
+
+* According to the graph, there is a big difference in the survive and alive in both Fare and Age. I think just based on the differences can not predict who survived.
+
+## Exercise 3
+
+```{r, fig.width = 5, fig.asp=1}
+train_df %>%
+  pivot_longer(
+    cols=c('Pclass', 'Sex', 'Parch', 'SibSp'), 
+    names_to="name", 
+    values_to = "value"
+    ) %>%
+  ggplot() +
+  geom_bar(
+    aes(x = value, fill = did_survive), 
+    alpha = 0.5, 
+    position ="identity"
+     ) + 
+  facet_wrap(~ name, scales = "free") +
+  labs(
+    title = "Bar graph of survival affected by 
+variables Parch, Pclass, Sex and SibSp",
+    x = "Value",
+    y = "Frequency"
+  )
+```
+***Using your graphs, explain how each of these categorical variables is related to surviving (or not surviving) the Titanic.***
+
+  * In **Parch** variable, the amount of death is higher than survive. The number of children and parents at 0 is the most common. This variable is irrelevant to the survival.
+  * In **Pclass** variable, the amount death is clearly higher than survive when the passenger class is in 3rd. This indicates that passengers in the lower class were more likely to die in the disaster. Therefore this variable is realted to the surviving the Titanic.
+  * In **Sex** variable, among male passengers, the number of deaths is higher than the number of survivors, indicating that males were less likely to survive the disaster, while among female passengers, the number of survivors is larger than the number of deaths, suggesting that females had a higher chance of survival. The amount of death in male is higher than female, thus women survived more than men. Therefore this variable is related to the surviving the Titanic as people prioritize saving women and children.
+  * In **SipS**, the number of Siblings or Spouses Aboard is 0 when there is the highest amount of death. This variable is irrelavent to the surviving the Titanic.
+
+***Which variables do you think might be most useful for predicting survival, and why?***
+
+  * Most useful variables for predicting survival are Sex and Pclass.
+
+
+## Exercise 4
+
+```{r}
+train_df %>%
+  ggplot() +
+  geom_bar(aes(x = Pclass, fill = did_survive), 
+           alpha = 0.5, 
+           position ="identity") +
+  facet_wrap(~ Sex, scales = "free") +
+  labs(
+    title = "Bar graph of survival affected by variables Pclass, Sex",
+    x = "Class",
+    y = "Frequency",
+  )
+  
+```
+
+* While in female graph, the number of survivors is higher than the number of deaths in every class rank, the number of death is higher than the number of survive for male. Furthermore, regardless of sexes, the third class has the highest number of deaths compared to the first and second classes.
+
+
+## Exercise 5
+
+```{r}
+train_df %>%
+  summarize(
+    count = n(),
+    missing = sum(is.na(Age)),
+    fraction_missing = missing/count
+  )
+```
+
+```{r}
+train_imputed <- train_df %>%
+  mutate(
+    age_imputed = if_else(
+      condition = is.na(Age),
+      true = median(Age, na.rm = TRUE),
+      false = Age
+    )
+  )
+```
+
+```{r}
+train_imputed %>%
+  summarize(
+    count = n(),
+    missing = sum(is.na(age_imputed)),
+    fraction_missing = missing/count
+  )
+```
+There is no missing data in age_imputed
+
+## Exercise 6
+
+```{r}
+model_1 <- glm(
+  Survived ~ age_imputed,
+  family = binomial(),
+  data = train_imputed
+)
+```
+
+```{r}
+model_1_preds <- train_imputed %>%
+  add_predictions(
+    model_1,
+    type = "response"
+  ) %>%
+  mutate(
+    outcome = if_else(pred > 0.5,1,0)
+  )
+```
+
+
+```{r}
+model_1_preds %>%
+  mutate(
+    correct = if_else(
+      condition = (Survived == outcome),
+      true = 1,
+      false = 0
+    )
+  ) %>%
+  summarize(
+    total_correct =  sum(correct),
+    accuracy =  total_correct/n()
+  )
+```
+
+What is the accuracy of your model? Does this seem good or bad?
+
+* The accuracy of the model is 0.6161616. It's not too bad.
+
+## Exercise 7
+
+```{r}
+logistic_cv1 <- cv.glm(train_imputed, model_1, cost, K=5)
+logistic_cv1$delta
+```
+The calculated error is 0.3838384.
+
+## Exercise 8
+
+i. Train a second, multivariate logistic regression model, using the age_imputed, SibSp, Pclass, and Sex variables as predictor variables.
+
+```{r}
+model_2 <- glm(
+  Survived ~ age_imputed + SibSp + Pclass + Sex,
+  family = binomial(),
+  data = train_imputed
+)
+```
+
+```{r}
+logistic_cv2 <- cv.glm(train_imputed, model_2, cost, K=5)
+logistic_cv2$delta
+```
+
+ii. Now, let's train a third logistic regression model with interaction between some of the variables.
+```{r}
+model_3 <- glm(
+  Survived ~ age_imputed * Pclass * Sex + SibSp, 
+  family = "binomial",
+  data = train_imputed 
+  )
+```
+
+
+```{r}
+logistic_cv3 <- cv.glm(train_imputed, model_3, cost, K=5)
+logistic_cv3$delta
+```
+
+iii. Which of your three models has the most accurate validation error? Is this what you would expect? (The predictive power of a model usually increases with its complexity, up to a point.)
+
+* The third model has the most accurate validation error. It is expected because sex, social class and age have factor in
+whether one survived or not, as women, children and people who from higher social class are prioritized. Therefore the interaction of 3 variables age_imputed, Pclass, and Sex will increase the model complexity and resulted in higher accuracy
+
+## Bonus Exercise
+
+Read in the test.csv file, using similar code to that you wrote in Exercise 1. Make sure to save the dataset as a new variable, such as test_df.
+```{r}
+test_df <- read_csv(
+  file = "test.csv",
+  col_types = cols(
+    Pclass = col_character(),
+    SibSp = col_character(),
+    Parch = col_character()
+    )
+  )
+```
+
+Create a test_imputed dataframe with an age_imputed column, by adapting your code from Exercise 5.
+
+```{r}
+test_imputed <- test_df %>%
+  mutate(
+    age_imputed = if_else(
+      condition = is.na(Age),
+      true = median(Age, na.rm = TRUE),
+      false = Age
+    )
+  )
+```
+
+```{r}
+test_imputed %>%
+  summarize(
+    count = n(),
+    missing = sum(is.na(age_imputed)),
+    fraction_missing = missing/count
+  )
+```
+
+```{r}
+model_3_preds <- test_imputed %>%
+  add_predictions(
+    model_3,
+    type = "response"
+  ) %>%
+  mutate(
+    outcome = if_else(pred > 0.5,1,0)
+  )
+```
+
+```{r}
+model_3_preds %>%
+  rename(Survived = outcome)
+```
+
+```{r}
+write_csv(model_3_preds %>%
+            rename(Survived = outcome) %>%
+            select(PassengerId, Survived)
+          , 
+          "bonus_exercise.csv", 
+          append = FALSE, 
+          col_names = TRUE, 
+          )
+```
+
+
+## Academic Integrity statement
+
+[https://www.rdocumentation.org/packages/readr/versions/0.1.0/topics/write_csv](Link)
+[https://www.datanovia.com/en/lessons/rename-data-frame-columns-in-r/](Rename)
+
